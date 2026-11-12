@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# generated from the STEP + STL files by `python -m cara.model.build_model`
+cara/model/assets/
+cara/model/cara.xml
+cara/model/mass_report.md
+cara/model/assets_lo/
+cara/model/cara_lo.xml
