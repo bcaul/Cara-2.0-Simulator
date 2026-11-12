@@ -6,3 +6,5 @@ __pycache__/
 cara/model/assets/
 cara/model/cara.xml
 cara/model/mass_report.md
+cara/model/assets_lo/
+cara/model/cara_lo.xml

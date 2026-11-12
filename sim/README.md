@@ -40,7 +40,8 @@ The scripts also build the model automatically if it's missing.
 python scripts/run.py               # keyboard; a plugged-in gamepad also works
 python scripts/run.py --stabilize   # enables the IMU getShifts() block that is commented out in loop()
 ```
-Two windows open. **Click the small "CARA transmitter" window** so it gets the keyboard.
+One window opens: the 3D view on the left (drag to rotate, wheel to zoom), the transmitter on the right. The robot starts **held in the air**; a banner tells you what to press next (**hold Space 1 s** to home).
+The live view uses low-detail meshes and no shadows so it keeps up on integrated graphics; `scripts/view_model.py` still shows the full-detail model.
 
 | Key | RC channel | Does (same as the real firmware) |
 |---|---|---|
