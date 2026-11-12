@@ -54,6 +54,7 @@ The live view uses low-detail meshes and no shadows so it keeps up on integrated
 | **+ / -** | CH8 knob | (unused by the firmware) |
 | **Backspace** | - | transmitter on/off (off prints DISCONNECTED) |
 | **H** | - | pick the robot up / set it down |
+| **F11** | - | fullscreen (or resize/maximise the window); Esc leaves fullscreen |
 
 Gamepad (Xbox layout): sticks are the sticks, A = button, RB/LB = CH5, D-pad = CH7, Start = on/off, Y = pick up.
 

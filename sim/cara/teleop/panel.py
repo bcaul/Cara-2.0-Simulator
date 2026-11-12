@@ -13,7 +13,8 @@ Keyboard:
   + / -       CH8 knob
   Backspace   transmitter on/off
   H           pick the robot up / set it down
-  Esc         quit
+  F11         fullscreen on/off (the window can also be resized/maximised)
+  Esc         leave fullscreen / quit
 Mouse in the 3D view: left-drag rotate, wheel zoom.
 Gamepad (Xbox layout): sticks = sticks, A = button, RB/LB = CH5 up/down,
   D-pad up/down = CH7, Start = transmitter on/off, Y = pick up / set down.
@@ -29,7 +30,8 @@ import mujoco  # noqa: E402
 import pygame  # noqa: E402
 
 STATE_NAMES = {0: "0 not homed", 1: "1 crouched", 2: "2 IDLE (motors off)", 3: "3 standing"}
-VIEW_W, VIEW_H, SIDE_W = 760, 640, 440
+VIEW_W, VIEW_H, SIDE_W = 760, 640, 440       # initial 3D view size, sidebar width
+MAX_RENDER_W = 1280                            # render at most this wide, then scale to fit
 BG, FG, DIM, ACC, OK, BAD, GRID = ((24, 26, 30), (230, 230, 230), (130, 135, 145), (90, 170, 255),
                                    (90, 200, 120), (230, 90, 80), (60, 64, 70))
 HELP = [
@@ -42,6 +44,7 @@ HELP = [
     ("Backspace", "transmitter on/off"),
     ("H", "pick up / set down"),
     ("mouse", "drag = rotate, wheel = zoom"),
+    ("F11", "fullscreen"),
 ]
 
 
@@ -49,7 +52,9 @@ class TransmitterPanel:
     def __init__(self, tx, sim=None, use_gamepad=True):
         pygame.init()
         pygame.display.set_caption("CARA 2.0 simulator")
-        self.screen = pygame.display.set_mode((VIEW_W + SIDE_W, VIEW_H))
+        self.screen = pygame.display.set_mode((VIEW_W + SIDE_W, VIEW_H), pygame.RESIZABLE)
+        self.fullscreen = False
+        self.view_w, self.view_h = VIEW_W, VIEW_H
         self.font = pygame.font.SysFont("consolas", 15)
         self.big = pygame.font.SysFont("consolas", 18, bold=True)
         self.huge = pygame.font.SysFont("consolas", 22, bold=True)
@@ -67,14 +72,39 @@ class TransmitterPanel:
         if sim is not None:
             from ..model.lod import load_display_model
             m = load_display_model()          # same bodies as sim.m, low-poly meshes (fast to draw)
-            m.vis.global_.offwidth = max(m.vis.global_.offwidth, VIEW_W)
-            m.vis.global_.offheight = max(m.vis.global_.offheight, VIEW_H)
-            self.renderer = mujoco.Renderer(m, VIEW_H, VIEW_W)
+            m.vis.global_.offwidth = max(m.vis.global_.offwidth, MAX_RENDER_W)
+            m.vis.global_.offheight = max(m.vis.global_.offheight, 1440)
+            self._disp_model = m
+            self._make_renderer()
             self.cam = mujoco.MjvCamera()
             self.cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
             self.cam.trackbodyid = m.body("base").id
             self.cam.distance, self.cam.azimuth, self.cam.elevation = 1.5, 135.0, -18.0
         self._drag = None
+
+    # ------------------------------------------------------------------ window
+    def _make_renderer(self):
+        if self.renderer is not None:
+            self.renderer.close()
+        rw = min(self.view_w, MAX_RENDER_W)
+        rh = min(1440, max(1, round(self.view_h * rw / self.view_w)))
+        self.render_size = (rw, rh)
+        self.renderer = mujoco.Renderer(self._disp_model, rh, rw)
+
+    def _resized(self):
+        self.screen = pygame.display.get_surface()
+        w, h = self.screen.get_size()
+        self.view_w, self.view_h = max(200, w - SIDE_W), max(200, h)
+        if self.renderer is not None:
+            self._make_renderer()
+
+    def toggle_fullscreen(self):
+        self.fullscreen = not self.fullscreen
+        if self.fullscreen:
+            pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+        else:
+            pygame.display.set_mode((VIEW_W + SIDE_W, VIEW_H), pygame.RESIZABLE)
+        self._resized()
 
     # ------------------------------------------------------------------ input
     def poll(self):
@@ -82,9 +112,14 @@ class TransmitterPanel:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 self.quit = True
+            elif ev.type in (pygame.VIDEORESIZE, pygame.WINDOWSIZECHANGED):
+                self._resized()
             elif ev.type == pygame.KEYDOWN:
                 k = ev.key
-                if k == pygame.K_ESCAPE: self.quit = True
+                if k == pygame.K_ESCAPE:
+                    if self.fullscreen: self.toggle_fullscreen()
+                    else: self.quit = True
+                elif k == pygame.K_F11: self.toggle_fullscreen()
                 elif k == pygame.K_1: self.tx.set(sw5=1)
                 elif k == pygame.K_2: self.tx.set(sw5=0)
                 elif k == pygame.K_3: self.tx.set(sw5=-1)
@@ -95,7 +130,7 @@ class TransmitterPanel:
                 elif k in (pygame.K_MINUS, pygame.K_KP_MINUS): self.tx.set(knob=max(0, st.knob - 10))
                 elif k == pygame.K_BACKSPACE: self.tx.set(on=not st.on)
                 elif k == pygame.K_h: self.hand_toggle = True
-            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and ev.pos[0] < VIEW_W:
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and ev.pos[0] < self.view_w:
                 self._drag = ev.pos
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
                 self._drag = None
@@ -164,7 +199,10 @@ class TransmitterPanel:
         self.renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = 0        # shadows cost ~25 ms/frame
         self.renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = 0
         img = self.renderer.render()
-        self.screen.blit(pygame.image.frombuffer(img.tobytes(), (VIEW_W, VIEW_H), "RGB"), (0, 0))
+        surf = pygame.image.frombuffer(img.tobytes(), self.render_size, "RGB")
+        if self.render_size != (self.view_w, self.view_h):
+            surf = pygame.transform.smoothscale(surf, (self.view_w, self.view_h))
+        self.screen.blit(surf, (0, 0))
         fw = sim.fw
         msg = None
         if not self.tx.state.on:
@@ -177,7 +215,7 @@ class TransmitterPanel:
             msg = "Motors off - press 1 to re-arm"
         if msg:
             surf = self.huge.render(msg, True, (255, 255, 255))
-            box = surf.get_rect(center=(VIEW_W // 2, 34))
+            box = surf.get_rect(center=(self.view_w // 2, 34))
             pygame.draw.rect(self.screen, (0, 0, 0), box.inflate(24, 14), border_radius=6)
             self.screen.blit(surf, box)
 
@@ -186,7 +224,7 @@ class TransmitterPanel:
         sc = self.screen
         sc.fill(BG)
         self._draw_view(sim)
-        x0 = VIEW_W + 16
+        x0 = self.view_w + 16
         self._text("Transmitter", x0, 12, FG, self.big)
         self._text("ON" if st.on else "OFF", x0 + 140, 12, OK if st.on else BAD, self.big)
         pad = f"gamepad: {self.pad.get_name()[:26]}" if self.pad else "gamepad: none (keyboard)"
