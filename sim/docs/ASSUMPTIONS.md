@@ -47,7 +47,41 @@ Per body: base 4.25 kg, each carriage 0.56 kg (it carries the A and B motors), u
 | Joint damping / friction | 0.02 N·m·s/rad / 0.03 N·m | Assumption |
 | Joint limits | A, B ≥ 8.18° (homing stop); ABAD ≤ 60° (homing stop); opposite limits A, B ≤ 150°, ABAD ≥ −45° | Homing stops from the firmware; the opposite limits are assumptions |
 
-**Phase 1 only:** joint-space PID equivalent to the ODrive cascade: KP = 17.6 N·m/rad, KD = 0.88 N·m·s/rad, KI = 117 N·m/(rad·s). Phase 2 replaces it with the motor-side ODrive model driven by the ported firmware.
+**Phase 1 only** (`scripts/stand.py`): joint-space PID equivalent to the ODrive cascade: KP = 17.6 N·m/rad, KD = 0.88 N·m·s/rad, KI = 117 N·m/(rad·s). Phase 2 replaces it with the motor-side ODrive model driven by the ported firmware.
+
+## ODrive behaviour (Phase 2, `cara/sim_backend/odrive_sim.py`)
+Modelled on the ODrive 0.5.x controller, which the MKS XDrive custom firmware is based on.
+
+| Item | Value | Basis |
+|---|---|---|
+| Position filter | `INPUT_MODE_POS_FILTER`, kp = bw², ki = 2·bw with bw = 30 | ODrive 0.5.x code. **bw is effectively rad/s**, so the filter takes about 130 ms to reach 90% of a step. The 50 ms gait phases are smoothed a lot, as on the real robot. |
+| Encoder | Single-turn absolute (AS5047), so Pos_Estimate starts somewhere in [0, 1) turn at power-up. Velocity estimate bandwidth 3000. | Build Guide |
+| Feedback rate | Encoder estimates every 10 ms over CAN | ODrive default; the custom firmware's rate is unknown |
+| `getCurrents()` | 0.3 ms request/response; Iq_Measured has 0.05 A noise | Assumption |
+| Current loop | Iq follows its setpoint with 1000 rad/s bandwidth | Assumption |
+| Overspeed | The axis disarms above 1.2 × vel_limit (36 turn/s), as on the real ODrive | ODrive default. Never reached in the demos (peak about 24 turn/s). |
+| Not modelled | Back-EMF voltage limit (24 V), DC bus current limit, CAN bus delay, thermal | |
+| Commands with NaN | Ignored and counted. In C, an unreachable IK target gives NaN, and that would be sent to the ODrive. | |
+
+## Firmware timing (virtual clock)
+- `delay(ms)` is exact. One `pumpEvents()` costs 20 µs, so the busy-wait loops in `setState()` and `getJointPos()` last 5 ms as on the Teensy.
+- Computation itself takes no time (a Teensy 4.1 does a loop of IK in microseconds).
+- Commands reach the motors on the next 0.5 ms physics step.
+
+## IMU (Phase 3)
+- The BNO086 rotation vector is relative to gravity, reported every 10 ms, with 0.2° white noise per axis and a 0.02°/√s random-walk bias.
+- **Mounting assumed: x backward, y right, z up.** The build guide doesn't say. With this mounting, the firmware's `-getRoll()` / `-getPitch()` sign flips make `getShifts()` move the feet in the stabilising direction.
+- Verified: on a 10° slope, the centre of mass sits 57 mm off the middle of the feet with stabilisation off and 10 mm with `--stabilize` (sideways slope: 51 mm → 6 mm).
+- If the real board is mounted differently, change `IMU_MOUNT_YAW_DEG`.
+
+## RC transmitter (Phase 3)
+- 50 Hz frames. Widths are 1000–2000 µs, centred at 1500.
+- Channel directions are set so that the firmware's `criteria()` and switch logic see what your transmitter sends. For example, right stick forward gives about 1000 µs on ch2, because `mapRange` reverses that channel.
+- The firmware's `map()` runs on a float `width[]`. Teensyduino uses its floating-point `map` for that, and the result is truncated to `int` when stored in `chnVal`.
+- Transmitter off: ch3 = 900 µs (receiver failsafe; the firmware checks `width[2] > 1000`).
+
+## The "hand"
+`run.py` and `demo.py` start with the robot held in the air by its handle, motors idle, because homing on the floor would push the legs into the ground. It's set down after homing. **H** picks it up again. This is a simulation convenience, not part of the firmware.
 
 ## Contact
 - Foot friction 1.0, with soft contact (`solref 0.008 0.6`) to approximate the squash ball's compliance. Both are assumptions.

@@ -115,3 +115,35 @@ FOOT_RADIUS = 0.020                 # squash ball (40 mm)
 FOOT_FRICTION = 1.0                 # rubber on floor ASSUMPTION
 FOOT_SOLREF = (0.008, 0.6)          # softer contact ~ squash-ball compliance ASSUMPTION
 PHYSICS_DT = 0.0005                 # 2 kHz
+
+# ---------------------------------------------------------------------------
+# 6. ODrive (MKS XDrive Mini, custom 0.5.x-based firmware) behaviour - Phase 2
+# ---------------------------------------------------------------------------
+# Build Guide: encoder = AS5047 absolute SPI (single turn), encoder bandwidth 3000.
+ODRIVE_SIM = dict(
+    encoder_bandwidth=3000.0,       # rad/s, PLL velocity estimate        [Build Guide]
+    vel_limit_tolerance=1.2,        # ODrive 0.5.x default: overspeed error above 1.2 x vel_limit
+    enable_overspeed_error=True,    # ODrive 0.5.x default
+    current_bandwidth=1000.0,       # rad/s, Iq tracking of the current loop  ASSUMPTION
+    iq_noise=0.05,                  # A rms on Iq_Measured                    ASSUMPTION
+    encoder_msg_rate_ms=10,         # cyclic Get_Encoder_Estimates (0.5.x default)  ASSUMPTION
+    can_request_us=300,             # getCurrents() request->response round trip   ASSUMPTION
+)
+# Teensy-side timing cost in the simulated firmware (virtual clock)
+PUMP_EVENTS_US = 20                 # one pumpEvents() call (busy-wait loops in setState/getJointPos)
+
+# ---------------------------------------------------------------------------
+# 7. IMU (BNO086 rotation vector) - Phase 3
+# ---------------------------------------------------------------------------
+IMU_REPORT_MS = 10                  # enableRotationVector() default interval
+IMU_ANGLE_NOISE_DEG = 0.2           # white noise per axis   ASSUMPTION
+IMU_BIAS_WALK_DEG = 0.02            # deg/sqrt(s) bias random walk  ASSUMPTION
+# Mounting: IMU x points BACKWARD, y RIGHT, z up (180 deg about z). Chosen so that the
+# firmware sign flips (-getRoll, -getPitch) make getShifts() move the feet downhill,
+# i.e. the stabiliser in Dynamic_Stability_Derivations.pdf corrects instead of diverging.
+IMU_MOUNT_YAW_DEG = 180.0           # ASSUMPTION (not documented in the build guide)
+
+# ---------------------------------------------------------------------------
+# 8. RC receiver - Phase 3
+# ---------------------------------------------------------------------------
+RC_FRAME_MS = 20                    # 50 Hz PWM frames
