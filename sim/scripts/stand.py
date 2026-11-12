@@ -1,6 +1,7 @@
 """Phase 1: drop CARA onto the floor and hold the standing pose (zNom = 280 mm).
 
     python scripts/stand.py              # interactive viewer
+                                         # arrow keys shove the body (trackpad-friendly)
     python scripts/stand.py --headless   # print stats only
 """
 import argparse
@@ -19,6 +20,12 @@ from cara.sim_backend.model_utils import chain_error_mm, foot_in_leg_frame
 from cara.sim_backend.simple_pd import KD, KI, KP, TAU_MAX, JointPID
 
 
+# glfw key codes -> shove direction in the world frame (x forward, y left)
+SHOVE_KEYS = {265: (1, 0), 264: (-1, 0), 263: (0, 1), 262: (0, -1)}   # Up Down Left Right
+SHOVE_FORCE = 40.0      # N on the body
+SHOVE_TIME = 0.15       # s  (impulse 6 N*s, about 0.8 m/s on a 7.4 kg robot)
+
+
 def run(seconds=10.0, viewer=False, drop=0.01, verbose=True):
     m = load_model()
     d = mujoco.MjData(m)
@@ -27,11 +34,28 @@ def run(seconds=10.0, viewer=False, drop=0.01, verbose=True):
     pid = JointPID(m)
     log = []
     v = None
+    pending = []            # shoves requested from the viewer thread
+    shove_until, shove_dir = -1.0, (0, 0)
+    base = m.body("base").id
     if viewer:
         from mujoco import viewer as mjviewer
-        v = mjviewer.launch_passive(m, d)
+
+        def on_key(key):
+            if key in SHOVE_KEYS:
+                pending.append(SHOVE_KEYS[key])
+
+        v = mjviewer.launch_passive(m, d, key_callback=on_key)
+        print("Arrow keys shove the robot (Up = from behind, Left/Right = sideways). "
+              "Close the window to exit.")
     t_wall = time.perf_counter()
     while d.time < seconds or (v is not None and v.is_running()):
+        if pending:
+            shove_dir, shove_until = pending.pop(0), d.time + SHOVE_TIME
+        if d.time < shove_until:
+            d.xfrc_applied[base, :2] = SHOVE_FORCE * np.array(shove_dir)
+        elif shove_until > 0:
+            d.xfrc_applied[base, :2] = 0.0
+            shove_until = -1.0
         pid(d, m.opt.timestep)
         mujoco.mj_step(m, d)
         if int(round(d.time / m.opt.timestep)) % 100 == 0:
